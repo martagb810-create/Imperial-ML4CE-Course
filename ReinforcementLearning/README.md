@@ -16,8 +16,24 @@ Use the notebook [`ML4CE_RL_INV_CW.ipynb`](ML4CE_RL_INV_CW.ipynb) to execute and
 - **Limited evaluation budget** (per run): 
     - max_episodes = 5000  
     - max_time = 5 min
+#### IMPORTANT GRADING UPDATES ‼️
+Together with the algorithm implementation, each group has to submit a report including the following sections:
+- Brief explanation of the algorithm and methodology employed
+- Pseudocode
+- Block diagram of the algorithm (optional)
+- References
 
-### Submission rules
+**Final score:**
+80% of the final grade will be determined by the performance of the policy optimization algorithm, with the report contributing the remaining 20%.
+
+**Report format requirements** 
+- Maximum 2 pages long, excluding block diagrams or references
+- Pseudocode format following the [same convention](https://student.cs.uwaterloo.ca/~cs231/resources/pseudocode.pdf) as other courseworks of this module
+- Letter size $\ge$ 11 pt
+- Margins $\ge$ 2 cm 
+- Conventional fonts (e.g.: Arial, Times New Roman, Calibri, LaTeX)
+
+### Algorithm submission rules
 - Use only the packages already provided in the python environment `ml4ce_rl.yml`. For more information about how to create an environment from an environment.yml file, visit [CONDA User Guide](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).
 - Rename `your_alg.py` to `RL_your_team_name.py`
 - Ensure your algorithm respects the template
