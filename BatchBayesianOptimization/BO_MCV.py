@@ -336,9 +336,10 @@ class BO:
 
         # Transform the 6th column to categorical labels
         for row in X_cat:
-            row[5] = celltypes[row[5]]  # convert 0,1,2 → 'celltype_1', etc.
+            row[5] = celltypes[int(row[5])]  # convert 0,1,2 → 'celltype_1', etc.
         self.Y = objective_func(X_cat)
-        self.time = [datetime.timestamp(datetime.now())-start_time]*(len(self.Y))
+        print(type(self.Y))
+        self.time = [datetime.timestamp(datetime.now())-self.start_time]*(len(self.Y))
 
         # Select initial points from search space and mark them as used
         self.mask = np.ones(len(X_searchspace), dtype=bool)  # Mask to track available points, len returns first dimension (so rows)
@@ -398,7 +399,7 @@ class BO:
             X_batch_list = X_batch.tolist()
             # Transform the 6th column to categorical labels
             for row in X_batch_list:
-                row[5] = self.celltypes[row[5]]  # convert 0,1,2 → 'celltype_1', etc.
+                row[5] = self.celltypes[int(row[5])]  # convert 0,1,2 → 'celltype_1', etc.
 
             # --- evaluate batch ---
             Y_batch = objective_func(X_batch_list)
@@ -437,6 +438,11 @@ X_initial = ([[33, 6.25, 10, 20, 20, 'celltype_1'],
 #X_searchspace     = [[a,b,c,d,e,f] for a in temp for b in pH for c in f1 for d in f2 for e in f3 for f in celltype]
 '''
 #TODO: Select 6 initial points
-X_initial=()
+X_initial = np.array([[33, 6.25, 10, 20, 20, 0],
+              [38, 8, 20, 10, 20, 2],
+              [37, 6.8, 0, 50, 0, 0],
+              [36, 6.0, 20, 20, 10, 2],
+              [36, 6.1, 20, 20, 10, 1],
+              [38, 6.0, 30, 50, 10, 0]])
 X_searchspace = sobol_searchspace() #Numpy array
 BO_m = BO(X_initial, X_searchspace, 15, 5, objective_func)
