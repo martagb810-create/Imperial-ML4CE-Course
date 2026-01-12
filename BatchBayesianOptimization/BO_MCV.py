@@ -142,13 +142,13 @@ class GP_model:
     ###########################
     # --- initializing GP --- #
     ###########################    
-    def __init__(self, X, Y, multi_hyper):
+    def __init__(self, X, Y, multi_start=10):
         
         # GP variable definitions
         self.X, self.Y              = X, Y
         self.n_point, self.nx_dim   = X.shape[0], X.shape[1] #rows, columns
         self.ny_dim                 = Y.shape[1]
-        self.multi_hyper            = multi_hyper
+        self.multi_start            = multi_start
         
         # normalize data, axis 0 to make sure mean and std are column wise (down the column, for each input)
         self.X_mean, self.X_std     = np.mean(X, axis=0), np.std(X, axis=0)
@@ -238,20 +238,20 @@ class GP_model:
         lb               = np.array([-4.]*(nx_dim+1) + [-10.])  # lb on parameters (this is inside the exponential)
         ub               = np.array([4.]*(nx_dim+1) + [ -2.])  # ub on parameters (this is inside the exponential)
         bounds           = np.hstack((lb.reshape(nx_dim+2,1),
-                                      ub.reshape(nx_dim+2,1)))
-        multi_start      = self.multi_hyper                   # multistart on hyperparameter optimization to avoid local minima
-        multi_startvec   = sobol_seq.i4_sobol_generate(nx_dim + 2,multi_start)
+                                      ub.reshape(nx_dim+2,1)))                  
+        # multistart on hyperparameter optimization to avoid local minima
+        multi_startvec   = sobol_seq.i4_sobol_generate(nx_dim + 2,self.multi_start)
 
         options  = {'disp':False,'maxiter':10000}          # solver options
         hypopt   = np.zeros((nx_dim+2, ny_dim))            # hyperparams w's + sf2+ sn2 (one for each GP i.e. output var)
-        localsol = [0.]*multi_start                        # values for multistart
-        localval = np.zeros((multi_start))                 # variables for multistart
+        localsol = [0.]*self.multi_start                        # values for multistart
+        localval = np.zeros((self.multi_start))                 # variables for multistart
 
         invKopt = []
         # --- loop over outputs (GPs) --- #
         for i in range(ny_dim):    
             # --- multistart loop --- # 
-            for j in range(multi_start):
+            for j in range(self.multi_start):
                 print('multi_start hyper parameter optimization iteration = ',j,'  input = ',i)
                 hyp_init    = lb + (ub-lb)*multi_startvec[j,:]
                 # --- hyper-parameter optimization --- #
