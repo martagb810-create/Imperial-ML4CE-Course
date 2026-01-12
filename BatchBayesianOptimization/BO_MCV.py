@@ -93,12 +93,6 @@ def sobol_searchspace(
         [temp, pH, f1, f2, f3, celltype_idx]
     Returns a fully numeric NumPy array (float + int), and a mapping dict.
     """
-    # Validate ranges to see if they are a list or tuple of (min, max) and min <= max
-    def _check_range(rng, name):
-        if not (isinstance(rng, (tuple, list)) and len(rng) == 2 and rng[0] <= rng[1]):
-            raise ValueError(f"{name}_range must be (min, max). Got {rng}")
-    for name, rng in zip(["temp","pH","f1","f2","f3"], [temp_range,pH_range,f1_range,f2_range,f3_range]):
-        _check_range(rng, name)
 
     celltypes = list(celltypes)
     n_cat = len(celltypes)
@@ -147,14 +141,13 @@ class GP_model:
     ###########################
     # --- initializing GP --- #
     ###########################    
-    def __init__(self, X, Y, kernel, multi_hyper, var_out=True):
+    def __init__(self, X, Y, multi_hyper):
         
         # GP variable definitions
-        self.X, self.Y, self.kernel = X, Y, kernel
+        self.X, self.Y              = X, Y
         self.n_point, self.nx_dim   = X.shape[0], X.shape[1] #rows, columns
         self.ny_dim                 = Y.shape[1]
         self.multi_hyper            = multi_hyper
-        self.var_out                = var_out # boolean, whether want to return variance in GP inference or not
         
         # normalize data
         self.X_mean, self.X_std     = np.mean(X, axis=0), np.std(X, axis=0)
@@ -168,16 +161,13 @@ class GP_model:
     # --- Covariance Matrix --- #
     #############################
 
-    def Cov_mat(self, kernel, X_norm, W, sf2):
-        if kernel == 'RBF':
-            # Compute pairwise standardized Euclidean squared distances
-            diff = X_norm[:, None, :] - X_norm[None, :, :]   # shape (N, N, D)
-            dist2 = np.sum((diff**2) / W[None, None, :], axis=2)  # shape (N, N)
+    def Cov_mat(self, X_norm, W, sf2):
+        # Compute pairwise standardized Euclidean squared distances
+        diff = X_norm[:, None, :] - X_norm[None, :, :]   # shape (N, N, D)
+        dist2 = np.sum((diff**2) / W[None, None, :], axis=2)  # shape (N, N)
 
-            # RBF covariance
-            return sf2 * np.exp(-0.5 * dist2)
-        else:
-            print('ERROR no kernel with name', kernel) # what does it mean by no kernel?
+        # RBF covariance
+        return sf2 * np.exp(-0.5 * dist2)
 
     ################################
     # --- Covariance of sample --- #
@@ -200,19 +190,16 @@ class GP_model:
     #############################    
     # With cdist
     """
-    def Cov_mat(self, kernel, X_norm, W, sf2):
+    def Cov_mat(self, X_norm, W, sf2):
         '''
         Calculates the covariance matrix of a dataset Xnorm
         --- decription ---
         '''
     
-        if kernel == 'RBF':
-            dist       = cdist(X_norm, X_norm, 'seuclidean', V=W)**2 
-            cov_matrix = sf2*np.exp(-0.5*dist)
-            return cov_matrix
-            # Note: cdist =>  sqrt(sum(u_i-v_i)^2/V[x_i])
-        else:
-            print('ERROR no kernel with name ', kernel)
+        dist       = cdist(X_norm, X_norm, 'seuclidean', V=W)**2 
+        cov_matrix = sf2*np.exp(-0.5*dist)
+        return cov_matrix
+        # Note: cdist =>  sqrt(sum(u_i-v_i)^2/V[x_i])
 
     ################################
     # --- Covariance of sample --- #
@@ -241,13 +228,12 @@ class GP_model:
         ''' 
         # internal parameters
         n_point, nx_dim = self.n_point, self.nx_dim
-        kernel          = self.kernel
         
         W               = np.exp(2*hyper[:nx_dim])   # W <=> 1/lambda
         sf2             = np.exp(2*hyper[nx_dim])    # variance of the signal 
         sn2             = np.exp(2*hyper[nx_dim+1])  # variance of noise
 
-        K       = self.Cov_mat(kernel, X, W, sf2)  # (nxn) covariance matrix (noise free)
+        K       = self.Cov_mat(X, W, sf2)  # (nxn) covariance matrix (noise free)
         K       = K + (sn2 + 1e-8)*np.eye(n_point) # (nxn) covariance matrix
         K       = (K + K.T)*0.5                    # ensure K is simetric
         L       = np.linalg.cholesky(K)            # do a cholesky decomposition
@@ -270,7 +256,7 @@ class GP_model:
         # internal parameters
         X_norm, Y_norm  = self.X_norm, self.Y_norm
         nx_dim, n_point = self.nx_dim, self.n_point
-        kernel, ny_dim  = self.kernel, self.ny_dim
+        ny_dim          = self.ny_dim
         Cov_mat         = self.Cov_mat
         
         # In lb I had changed the lb right extreme to -10 and the ub right extreme to -1
@@ -307,7 +293,7 @@ class GP_model:
             sn2opt      = np.exp(2.*hypopt[nx_dim+1,i]) + 1e-8
 
             # --- constructing optimal K --- #
-            Kopt        = Cov_mat(kernel, X_norm, ellopt, sf2opt) + sn2opt*np.eye(n_point)
+            Kopt        = Cov_mat(X_norm, ellopt, sf2opt) + sn2opt*np.eye(n_point)
             # --- inverting K --- #
             invKopt     += [np.linalg.solve(Kopt,np.eye(n_point))]
 
@@ -322,13 +308,12 @@ class GP_model:
         --- decription ---
         '''
         nx_dim                   = self.nx_dim
-        kernel, ny_dim           = self.kernel, self.ny_dim
-        hypopt, Cov_mat          = self.hypopt, self.Cov_mat
+        ny_dim                   = self.ny_dim
+        hypopt                   = self.hypopt
         stdX, stdY, meanX, meanY = self.X_std, self.Y_std, self.X_mean, self.Y_mean
         calc_cov_sample          = self.calc_cov_sample
         invKsample               = self.invKopt
         Xsample, Ysample         = self.X_norm, self.Y_norm
-        var_out                  = self.var_out
         # Sigma_w                = self.Sigma_w (if input noise)
 
         xnorm = (x - meanX)/stdX
@@ -349,11 +334,8 @@ class GP_model:
         # --- compute un-normalized mean --- #    
         mean_sample = mean*stdY + meanY
         var_sample  = var*stdY**2
-        
-        if var_out:
-            return mean_sample, var_sample
-        else:
-            return mean_sample.flatten()[0] # why always flatten()[0]?
+
+        return mean_sample, var_sample
 
 class RandomSelection:
     def __init__(self, X_searchspace, objective_func, batch): 
