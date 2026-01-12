@@ -7,6 +7,7 @@ import time
 import sobol_seq
 import scipy
 from scipy.optimize import minimize
+from scipy.spatial.distance import cdist
 
 # Group Submission
 group_names = ["Marta Garcia Belza", "Eric Lun"]
@@ -149,7 +150,7 @@ class GP_model:
         self.ny_dim                 = Y.shape[1]
         self.multi_hyper            = multi_hyper
         
-        # normalize data
+        # normalize data, axis 0 to make sure mean and std are column wise (down the column, for each input)
         self.X_mean, self.X_std     = np.mean(X, axis=0), np.std(X, axis=0)
         self.Y_mean, self.Y_std     = np.mean(Y, axis=0), np.std(Y, axis=0)
         self.X_norm, self.Y_norm    = (X-self.X_mean)/self.X_std, (Y-self.Y_mean)/self.Y_std
@@ -159,37 +160,9 @@ class GP_model:
     
     #############################
     # --- Covariance Matrix --- #
-    #############################
-
-    def Cov_mat(self, X_norm, W, sf2):
-        # Compute pairwise standardized Euclidean squared distances
-        diff = X_norm[:, None, :] - X_norm[None, :, :]   # shape (N, N, D)
-        dist2 = np.sum((diff**2) / W[None, None, :], axis=2)  # shape (N, N)
-
-        # RBF covariance
-        return sf2 * np.exp(-0.5 * dist2)
-
-    ################################
-    # --- Covariance of sample --- #
-    ################################               
-
-    def calc_cov_sample(self, xnorm, Xnorm, ell, sf2):
-        """
-        Calculates the covariance of a single sample xnorm against the dataset Xnorm
-        """
-        # Broadcasted per-feature differences for all rows: (n_points, nx_dim)
-        diff = Xnorm - xnorm[None, :]           # xnorm reshaped to (1, nx_dim) via [None, :]
-        # Standardized Euclidean squared distance per row: (n_points,)
-        dist2 = np.sum((diff ** 2) / ell[None, :], axis=1)
-        # RBF covariance; reshape to (n_points, 1) to mirror cdist(..., ...)**2 output
-        cov_matrix = (sf2 * np.exp(-0.5 * dist2)).reshape(-1, 1)
-        return cov_matrix
-    
-    #############################
-    # --- Covariance Matrix --- #
     #############################    
     # With cdist
-    """
+    # Note: number of hyperparameters = sf2, sn2, W lengthscales (one per input dimension)
     def Cov_mat(self, X_norm, W, sf2):
         '''
         Calculates the covariance matrix of a dataset Xnorm
@@ -198,14 +171,15 @@ class GP_model:
     
         dist       = cdist(X_norm, X_norm, 'seuclidean', V=W)**2 
         cov_matrix = sf2*np.exp(-0.5*dist)
+
         return cov_matrix
         # Note: cdist =>  sqrt(sum(u_i-v_i)^2/V[x_i])
 
     ################################
     # --- Covariance of sample --- #
     ################################    
-        
-    def calc_cov_sample(self,xnorm,Xnorm,ell,sf2):
+
+    def calc_cov_sample(self, xnorm, Xnorm, ell, sf2):
         '''
         Calculates the covariance of a single sample xnorm against the dataset Xnorm
         --- decription ---
@@ -217,7 +191,7 @@ class GP_model:
         cov_matrix = sf2 * np.exp(-.5*dist)
 
         return cov_matrix                
-    """
+
     ###################################
     # --- negative log likelihood --- #
     ###################################   
@@ -231,11 +205,11 @@ class GP_model:
         
         W               = np.exp(2*hyper[:nx_dim])   # W <=> 1/lambda
         sf2             = np.exp(2*hyper[nx_dim])    # variance of the signal 
-        sn2             = np.exp(2*hyper[nx_dim+1])  # variance of noise
+        sn2             = np.exp(2*hyper[nx_dim+1])  # variance of noise, an estimation
 
         K       = self.Cov_mat(X, W, sf2)  # (nxn) covariance matrix (noise free)
-        K       = K + (sn2 + 1e-8)*np.eye(n_point) # (nxn) covariance matrix
-        K       = (K + K.T)*0.5                    # ensure K is simetric
+        K       = K + (sn2 + 1e-8)*np.eye(n_point) # (nxn) covariance matrix with noise term, n.eye(N) creates identity matrix of NxN dimension
+        K       = (K + K.T)*0.5                    # ensure K is symmetric
         L       = np.linalg.cholesky(K)            # do a cholesky decomposition
         logdetK = 2 * np.sum(np.log(np.diag(L)))   # calculate the log of the determinant of K the 2* is due to the fact that L^2 = K
         invLY   = np.linalg.solve(L,Y)             # obtain L^{-1}*Y
@@ -260,11 +234,12 @@ class GP_model:
         Cov_mat         = self.Cov_mat
         
         # In lb I had changed the lb right extreme to -10 and the ub right extreme to -1
-        lb               = np.array([-4.]*(nx_dim+1) + [-8.])  # lb on parameters (this is inside the exponential)
+        # was -8 instead of -10 in Antonio's code
+        lb               = np.array([-4.]*(nx_dim+1) + [-10.])  # lb on parameters (this is inside the exponential)
         ub               = np.array([4.]*(nx_dim+1) + [ -2.])  # ub on parameters (this is inside the exponential)
         bounds           = np.hstack((lb.reshape(nx_dim+2,1),
                                       ub.reshape(nx_dim+2,1)))
-        multi_start      = self.multi_hyper                   # multistart on hyperparameter optimization
+        multi_start      = self.multi_hyper                   # multistart on hyperparameter optimization to avoid local minima
         multi_startvec   = sobol_seq.i4_sobol_generate(nx_dim + 2,multi_start)
 
         options  = {'disp':False,'maxiter':10000}          # solver options
