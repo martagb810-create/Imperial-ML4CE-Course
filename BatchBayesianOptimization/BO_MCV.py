@@ -147,7 +147,6 @@ class GP_model:
         # GP variable definitions
         self.X, self.Y              = X, Y
         self.n_point, self.nx_dim   = X.shape[0], X.shape[1] #rows, columns
-        self.ny_dim                 = Y.shape[1]
         self.multi_start            = multi_start
         
         # normalize data, axis 0 to make sure mean and std are column wise (down the column, for each input)
@@ -230,7 +229,6 @@ class GP_model:
         # internal parameters
         X_norm, Y_norm  = self.X_norm, self.Y_norm
         nx_dim, n_point = self.nx_dim, self.n_point
-        ny_dim          = self.ny_dim
         Cov_mat         = self.Cov_mat
         
         # In lb I had changed the lb right extreme to -10 and the ub right extreme to -1
@@ -243,35 +241,37 @@ class GP_model:
         multi_startvec   = sobol_seq.i4_sobol_generate(nx_dim + 2,self.multi_start)
 
         options  = {'disp':False,'maxiter':10000}          # solver options
-        hypopt   = np.zeros((nx_dim+2, ny_dim))            # hyperparams w's + sf2+ sn2 (one for each GP i.e. output var)
+        hypopt   = np.zeros((nx_dim+2))            # hyperparams w's + sf2+ sn2 (one for each GP i.e. output var)
         localsol = [0.]*self.multi_start                        # values for multistart
         localval = np.zeros((self.multi_start))                 # variables for multistart
 
         invKopt = []
-        # --- loop over outputs (GPs) --- #
-        for i in range(ny_dim):    
-            # --- multistart loop --- # 
-            for j in range(self.multi_start):
-                print('multi_start hyper parameter optimization iteration = ',j,'  input = ',i)
-                hyp_init    = lb + (ub-lb)*multi_startvec[j,:]
-                # --- hyper-parameter optimization --- #
-                res = minimize(self.negative_loglikelihood,hyp_init,args=(X_norm,Y_norm[:,i])\
+
+        # --- multistart loop --- # 
+        for j in range(self.multi_start):
+            print('multi_start hyper parameter optimization iteration = ',j)
+            hyp_init    = lb + (ub-lb)*multi_startvec[j,:]
+            # --- hyper-parameter optimization --- #
+            res = minimize(self.negative_loglikelihood,hyp_init,args=(X_norm,Y_norm)\
                                ,method='SLSQP',options=options,bounds=bounds,tol=1e-12)
-                localsol[j] = res.x
-                localval[j] = res.fun
+            localsol[j] = res.x
+            localval[j] = res.fun
 
             # --- choosing best solution --- #
             minindex    = np.argmin(localval)
-            hypopt[:,i] = localsol[minindex]
-            ellopt      = np.exp(2.*hypopt[:nx_dim,i])
-            sf2opt      = np.exp(2.*hypopt[nx_dim,i])
-            sn2opt      = np.exp(2.*hypopt[nx_dim+1,i]) + 1e-8
+            hypopt[:] = localsol[minindex]
+            ellopt      = np.exp(2.*hypopt[:nx_dim])
+            sf2opt      = np.exp(2.*hypopt[nx_dim])
+            sn2opt      = np.exp(2.*hypopt[nx_dim+1]) + 1e-8
 
             # --- constructing optimal K --- #
             Kopt        = Cov_mat(X_norm, ellopt, sf2opt) + sn2opt*np.eye(n_point)
+            print("Size of Kopt:", np.size(Kopt))
             # --- inverting K --- #
-            invKopt     += [np.linalg.solve(Kopt,np.eye(n_point))]
+            invKopt = np.linalg.solve(Kopt,np.eye(n_point))
 
+        print("Optimized hyperparameters:", hypopt)
+        print("Length of invKopt list (number of outputs):", len(invKopt))
         return hypopt, invKopt
 
     ########################
@@ -283,7 +283,6 @@ class GP_model:
         --- decription ---
         '''
         nx_dim                   = self.nx_dim
-        ny_dim                   = self.ny_dim
         hypopt                   = self.hypopt
         stdX, stdY, meanX, meanY = self.X_std, self.Y_std, self.X_mean, self.Y_mean
         calc_cov_sample          = self.calc_cov_sample
@@ -292,25 +291,23 @@ class GP_model:
         # Sigma_w                = self.Sigma_w (if input noise)
 
         xnorm = (x - meanX)/stdX
-        mean  = np.zeros(ny_dim)
-        var   = np.zeros(ny_dim)
-        # --- Loop over each output (GP) --- #
-        for i in range(ny_dim):
-            invK           = invKsample[i]
-            hyper          = hypopt[:,i]
-            ellopt, sf2opt = np.exp(2*hyper[:nx_dim]), np.exp(2*hyper[nx_dim])
 
-            # --- determine covariance of each output --- #
-            k       = calc_cov_sample(xnorm,Xsample,ellopt,sf2opt)
-            mean[i] = np.matmul(np.matmul(k.T,invK),Ysample[:,i])
-            var[i]  = max(0, sf2opt - np.matmul(np.matmul(k.T,invK),k)) # numerical error
-            #var[i] = sf2opt + Sigma_w[i,i]/stdY[i]**2 - np.matmul(np.matmul(k.T,invK),k) (if input noise)
+        ellopt, sf2opt = np.exp(2*hypopt[:nx_dim]), np.exp(2*hypopt[nx_dim])
+
+        # --- determine covariance of each output --- #
+        k       = calc_cov_sample(xnorm,Xsample,ellopt,sf2opt)
+        #print("Number of elements in invKsample:", len(invKsample))  # number of outputs
+        #print("Shape of first element:", invKsample[0].shape)        # shape of first covariance inverse
+        mean = np.squeeze(np.matmul(np.matmul(k.T,invKsample),Ysample))
+        #print("Mean size:", mean.shape)
+        var  = np.maximum(0, sf2opt - np.matmul(np.matmul(k.T,invKsample)+1e-7,k)) # numerical error
+        #var[i] = sf2opt + Sigma_w[i,i]/stdY[i]**2 - np.matmul(np.matmul(k.T,invKsample),k) (if input noise)
 
         # --- compute un-normalized mean --- #    
         mean_sample = mean*stdY + meanY
         var_sample  = var*stdY**2
 
-        return mean_sample, var_sample
+        return np.squeeze(mean_sample), np.squeeze(var_sample)
 
 class RandomSelection:
     def __init__(self, X_searchspace, objective_func, batch): 
@@ -321,7 +318,7 @@ class RandomSelection:
         self.random_Y = objective_func(random_searchspace)
 
 class BO:
-    def __init__(self, X_initial, X_searchspace, iterations, batch, objective_func, multi_start=10, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
+    def __init__(self, X_initial, X_searchspace, iterations, objective_func, batch=5, multi_start=10, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
         self.start_time = datetime.timestamp(datetime.now())
 
         self.X = X_initial
@@ -336,15 +333,18 @@ class BO:
 
         # Transform the 6th column to categorical labels
         for row in X_cat:
+            print(row[5])
             row[5] = celltypes[int(row[5])]  # convert 0,1,2 → 'celltype_1', etc.
+            print(row[5])
         self.Y = objective_func(X_cat)
         print(type(self.Y))
         self.time = [datetime.timestamp(datetime.now())-self.start_time]*(len(self.Y))
 
         # Select initial points from search space and mark them as used
+        print("Length of search space before BO:", len(X_searchspace))
         self.mask = np.ones(len(X_searchspace), dtype=bool)  # Mask to track available points, len returns first dimension (so rows)
         # self.mask[idx_init] = False  # Mark initial points as used
-
+        print("Length of mask:", self.mask.shape)
         # Call optimize method to perform BO
         self.X_final, self.Y_final = self.optimize()
     
@@ -372,6 +372,7 @@ class BO:
 
             # --- evaluate all remaining candidates ---
             Xcand = self.X_searchspace[self.mask]
+            print("Number of candidate points:", Xcand.shape)
             mean_list = []
             var_list = []
 
@@ -384,6 +385,8 @@ class BO:
             mean = np.array(mean_list).squeeze()
             var = np.array(var_list).squeeze()
 
+            print("GP mean predictions for candidates size:", mean.shape)
+
             # --- Evaluate acquisition functions ---
             f_best = np.max(self.Y, axis=0)  # for EI/PI
             # Here potential for looping over the best acquisition function to use at each iteration (strategy chosen)
@@ -392,9 +395,13 @@ class BO:
             #acq = self.acquisition_pi(mean, var, f_best)
 
             # --- select batch ---
+            print("acquisition function results:", acq)
+            print("acquisition function results:", acq)
+            print("batch:", self.batch)
             batch_idx_rel = np.argsort(acq)[-self.batch:]
+            print("Selected batch indices (relative to candidates):", batch_idx_rel)
             X_batch = Xcand[batch_idx_rel]
-
+            print("Selected batch :", X_batch)
              # Convert NumPy array to list of lists
             X_batch_list = X_batch.tolist()
             # Transform the 6th column to categorical labels
@@ -445,4 +452,4 @@ X_initial = np.array([[33, 6.25, 10, 20, 20, 0],
               [36, 6.1, 20, 20, 10, 1],
               [38, 6.0, 30, 50, 10, 0]])
 X_searchspace = sobol_searchspace() #Numpy array
-BO_m = BO(X_initial, X_searchspace, 15, 5, objective_func)
+BO_m = BO(X_initial, X_searchspace, 15, objective_func, 5)
