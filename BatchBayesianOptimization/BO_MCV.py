@@ -266,12 +266,9 @@ class GP_model:
 
             # --- constructing optimal K --- #
             Kopt        = Cov_mat(X_norm, ellopt, sf2opt) + sn2opt*np.eye(n_point)
-            print("Size of Kopt:", np.size(Kopt))
             # --- inverting K --- #
             invKopt = np.linalg.solve(Kopt,np.eye(n_point))
 
-        print("Optimized hyperparameters:", hypopt)
-        print("Length of invKopt list (number of outputs):", len(invKopt))
         return hypopt, invKopt
 
     ########################
@@ -341,12 +338,11 @@ class BO:
         self.time = [datetime.timestamp(datetime.now())-self.start_time]*(len(self.Y))
 
         # Select initial points from search space and mark them as used
-        print("Length of search space before BO:", len(X_searchspace))
         self.mask = np.ones(len(X_searchspace), dtype=bool)  # Mask to track available points, len returns first dimension (so rows)
         # self.mask[idx_init] = False  # Mark initial points as used
-        print("Length of mask:", self.mask.shape)
         # Call optimize method to perform BO
         self.X_final, self.Y_final = self.optimize()
+        print("Final time (s):", datetime.timestamp(datetime.now()) - self.start_time)
     
     def acquisition_ucb(self, mean, var, beta=2.0):
         return mean + beta * np.sqrt(var)
@@ -372,7 +368,6 @@ class BO:
 
             # --- evaluate all remaining candidates ---
             Xcand = self.X_searchspace[self.mask]
-            print("Number of candidate points:", Xcand.shape)
             mean_list = []
             var_list = []
 
@@ -385,8 +380,6 @@ class BO:
             mean = np.array(mean_list).squeeze()
             var = np.array(var_list).squeeze()
 
-            print("GP mean predictions for candidates size:", mean.shape)
-
             # --- Evaluate acquisition functions ---
             f_best = np.max(self.Y, axis=0)  # for EI/PI
             # Here potential for looping over the best acquisition function to use at each iteration (strategy chosen)
@@ -395,13 +388,8 @@ class BO:
             #acq = self.acquisition_pi(mean, var, f_best)
 
             # --- select batch ---
-            print("acquisition function results:", acq)
-            print("acquisition function results:", acq)
-            print("batch:", self.batch)
             batch_idx_rel = np.argsort(acq)[-self.batch:]
-            print("Selected batch indices (relative to candidates):", batch_idx_rel)
             X_batch = Xcand[batch_idx_rel]
-            print("Selected batch :", X_batch)
              # Convert NumPy array to list of lists
             X_batch_list = X_batch.tolist()
             # Transform the 6th column to categorical labels
@@ -411,9 +399,10 @@ class BO:
             # --- evaluate batch ---
             Y_batch = objective_func(X_batch_list)
 
+            print("Y_batch values:", Y_batch)
              # --- update data ---
             self.X = np.vstack((self.X, X_batch))
-            self.Y = np.vstack((self.Y, Y_batch))
+            self.Y = np.hstack((self.Y, Y_batch))
 
             # print best so far
             print(f"[Iter {iteration+1}/{self.iterations}] Best so far: {np.max(self.Y):.4f}")
@@ -425,7 +414,7 @@ class BO:
             # --- record time ---
             self.time += [datetime.timestamp(datetime.now())-self.start_time]*(len(Y_batch))
 
-            return self.X, self.Y
+        return self.X, self.Y
 
 '''
 X_initial = ([[33, 6.25, 10, 20, 20, 'celltype_1'],
@@ -452,4 +441,4 @@ X_initial = np.array([[33, 6.25, 10, 20, 20, 0],
               [36, 6.1, 20, 20, 10, 1],
               [38, 6.0, 30, 50, 10, 0]])
 X_searchspace = sobol_searchspace() #Numpy array
-BO_m = BO(X_initial, X_searchspace, 15, objective_func, 5)
+BO_m = BO(X_initial, X_searchspace, 15, objective_func, 5, multi_start=5)
