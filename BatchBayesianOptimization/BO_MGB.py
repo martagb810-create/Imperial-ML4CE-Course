@@ -142,7 +142,7 @@ class GP_model:
     ###########################
     # --- initializing GP --- #
     ###########################    
-    def __init__(self, X, Y, multi_start=10):
+    def __init__(self, X, Y, multi_start=5):
         
         # GP variable definitions
         self.X, self.Y              = X, Y
