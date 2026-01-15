@@ -316,7 +316,7 @@ class RandomSelection:
 
 class BO:
     def __init__(self, X_initial, X_searchspace, iterations, objective_func, batch=5, multi_start=5, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
-        start_time = datetime.timestamp(datetime.now()) #local time, not self
+        self.start_time = datetime.timestamp(datetime.now()) #local time, not self
 
         self.X = X_initial
         self.X_searchspace = X_searchspace
