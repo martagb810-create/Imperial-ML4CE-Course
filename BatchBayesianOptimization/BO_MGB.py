@@ -316,9 +316,10 @@ class RandomSelection:
 
 class BO:
     def __init__(self, X_initial, X_searchspace, iterations, objective_func, batch=5, multi_start=5, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
-        self.start_time = datetime.timestamp(datetime.now()) #local time, not self
+        start_time = datetime.timestamp(datetime.now()) #local time, not self
+        total_start = start_time
 
-        self.X = X_initial
+        self.X_initial = X_initial
         self.X_searchspace = X_searchspace
         self.iterations = iterations
         self.batch = batch
@@ -326,23 +327,91 @@ class BO:
         self.nx_dim = X_searchspace.shape[1]
 
         # Convert NumPy array to list of lists
-        X_cat = self.X.tolist()
+        X_cat = X_initial.tolist()
 
         # Transform the 6th column to categorical labels
         for row in X_cat:
             print(row[5])
             row[5] = celltypes[int(row[5])]  # convert 0,1,2 → 'celltype_1', etc.
             print(row[5])
-        self.Y = objective_func(X_cat)
+        #self.Y = objective_func(X_cat)
+        Y_initial = objective_func(X_cat)
+        self.Y = list(Y_initial)
         print(type(self.Y))
-        self.time = [datetime.timestamp(datetime.now())-self.start_time]*(len(self.Y))
+        #self.time = [datetime.timestamp(datetime.now())-self.start_time]*(len(self.Y))
+        self.time = [datetime.timestamp(datetime.now())-start_time]+ [0] * (len(Y_initial) - 1)
+        start_time = datetime.timestamp(datetime.now())
 
+        self.X = X_initial.copy()
         # Select initial points from search space and mark them as used
         self.mask = np.ones(len(X_searchspace), dtype=bool)  # Mask to track available points, len returns first dimension (so rows)
         # self.mask[idx_init] = False  # Mark initial points as used
         # Call optimize method to perform BO
-        self.X_final, self.Y_final = self.optimize()
-        print("Final time (s):", datetime.timestamp(datetime.now()) - self.start_time)
+        #self.X_final, self.Y_final = self.optimize()
+        #print("Final time (s):", datetime.timestamp(datetime.now()) - self.start_time)
+    
+        for iteration in range (self.iterations):
+            print(f"\nBO iteration {iteration+1}/{self.iterations}")
+
+            # Train GP model
+            gp = GP_model(self.X, np.array(self.Y), self.multi_start)
+
+            # --- evaluate all remaining candidates ---
+            Xcand = self.X_searchspace[self.mask]
+            mean_list = []
+            var_list = []
+
+            # Vectorized batch GP inference
+            for x in Xcand:
+                m, v = gp.GP_inference_np(x)
+                mean_list.append(m)
+                var_list.append(v)
+
+            mean = np.array(mean_list).squeeze()
+            var = np.array(var_list).squeeze()
+
+            # --- Evaluate acquisition functions ---
+            f_best = np.max(self.Y, axis=0)  # for EI/PI
+            # Here potential for looping over the best acquisition function to use at each iteration (strategy chosen)
+            #acq = self.acquisition_ucb(mean, var)
+            acq = self.acquisition_ei(mean, var, f_best)
+            #acq = self.acquisition_pi(mean, var, f_best)
+
+            # --- select batch ---
+            batch_idx_rel = np.argsort(acq)[-self.batch:]
+            X_batch = Xcand[batch_idx_rel]
+             # Convert NumPy array to list of lists
+            X_batch_list = X_batch.tolist()
+            # Transform the 6th column to categorical labels
+            for row in X_batch_list:
+                row[5] = celltypes[int(row[5])]  # convert 0,1,2 → 'celltype_1', etc.
+
+            # --- evaluate batch ---
+            Y_batch = objective_func(X_batch_list)
+            print("Y_batch values:", Y_batch)
+
+             # --- update data ---
+            self.X = np.vstack((self.X, X_batch))
+            self.Y += list(Y_batch)
+
+            self.time += [datetime.timestamp(datetime.now()) - start_time]
+            self.time += [0] * (len(Y_batch) - 1)
+
+            #start_time = datetime.timestamp(datetime.now())
+            # print best so far
+            print(f"[Iter {iteration+1}/{self.iterations}] Best so far: {np.max(self.Y):.4f}")
+
+            # --- update mask ---
+            mask_idx = np.where(self.mask)[0][batch_idx_rel]
+            self.mask[mask_idx] = False
+
+            # ✓ RESET start_time for next iteration
+            start_time = datetime.timestamp(datetime.now())
+
+        # --- record time ---
+        #print("Final time for iteration (s):", datetime.timestamp(datetime.now()) - start_time)
+        print("Final time for iteration (s):", datetime.timestamp(datetime.now()) - total_start)
+
     
     def acquisition_ucb(self, mean, var, beta=2.0):
         return mean + beta * np.sqrt(var)
@@ -357,6 +426,7 @@ class BO:
         z = (mean - f_best - xi)/std
         return scipy.stats.norm.cdf(z)
     
+    '''
     def optimize(self, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
         self.celltypes = celltypes
 
@@ -415,6 +485,7 @@ class BO:
             self.time += [datetime.timestamp(datetime.now())-self.start_time]*(len(Y_batch))
 
         return self.X, self.Y
+    '''
 
 '''
 X_initial = ([[33, 6.25, 10, 20, 20, 'celltype_1'],
@@ -442,3 +513,7 @@ X_initial = np.array([[33, 6.25, 10, 20, 20, 0],
               [38, 6.0, 30, 50, 10, 0]])
 X_searchspace = sobol_searchspace() #Numpy array
 BO_m = BO(X_initial, X_searchspace, 15, objective_func, 5, multi_start=5)
+
+print(len(BO_m.Y)) #should be 81
+print(len(BO_m.time)) #should be 81
+print(BO_m.time[:7]) #first 6 should be 0, 7th should be time taken for first iteration
