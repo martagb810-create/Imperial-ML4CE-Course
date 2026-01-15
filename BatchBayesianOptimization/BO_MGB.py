@@ -315,7 +315,7 @@ class RandomSelection:
         self.random_Y = objective_func(random_searchspace)
 
 
-def acquisition_ucb(mean, var, beta=2.0):
+def acquisition_ucb(mean, var, beta=5.0):
     """Upper Confidence Bound acquisition function"""
     return mean + beta * np.sqrt(var)
 
@@ -331,7 +331,48 @@ def acquisition_pi(mean, var, f_best, xi=0.01):
     z = (mean - f_best - xi) / (std + 1e-9)
     return scipy.stats.norm.cdf(z)
 
+
+
+def get_acquisition(iteration, mean, var, f_best):
+    """
+    Hybrid strategy with Thompson Sampling for early diversity
+    """
+    if iteration < 3:
+        # ITERATIONS 0-2: THOMPSON SAMPLING (randomized exploration)
+        # Sample from GP posterior to get diverse points
+        # This is implicit Thompson Sampling via random draws
+        np.random.seed(iteration)  # Different seed per iteration
+        samples = np.random.normal(mean, np.sqrt(var))
+        acq = samples  # Use samples directly as acquisition values
+        print(f"  Using THOMPSON SAMPLING - STOCHASTIC EXPLORATION")
+        
+    #elif iteration < 7:
+        # ITERATIONS 3-6: UCB (systematic exploration)
+     #   beta = 5
+      #  acq = acquisition_ucb(mean, var, beta=beta)
+       # print(f"  Using UCB (beta={beta}) - SYSTEMATIC EXPLORATION")
+        
+    elif iteration < 8:
+        # ITERATIONS 7-10: EI (exploitation focus)
+        xi = 0.01
+        acq = acquisition_pi(mean, var, f_best, xi=xi)
+        print(f"  Using PI (xi={xi}) - EXPLOITATION")
+
+    elif iteration < 15:
+        # ITERATIONS 11-14: Greedy EI
+        xi = 0.001
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - GREEDY EXPLOITATION")
+        
+    else:
+        # ITERATIONS 11-14: Greedy EI
+        xi = 0.0
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - PURE GREEDY")
+    
+    return acq
 '''
+
 # Adaptive acquisition function strategy 1
 def get_acquisition(iteration, mean, var, f_best):
     """
@@ -340,26 +381,52 @@ def get_acquisition(iteration, mean, var, f_best):
     - Iterations 5-9: EI (balanced)
     - Iterations 10-14: EI (exploitation)
     """
-    if iteration < 5:
-        beta = 3.0
-        acq = acquisition_ucb(mean, var, beta=beta)
-        print(f"  Using UCB (beta={beta}) - EXPLORATION")
+    if iteration < 4:
+        acq = acquisition_ei(mean, var, f_best, xi=0.01)
+        print(f"  Using EI (xi={0.01}) - BALANCED")
+
     elif iteration < 10:
         xi = 0.01
-        acq = acquisition_ei(mean, var, f_best, xi=xi)
-        print(f"  Using EI (xi={xi}) - BALANCED")
+        acq = acquisition_pi(mean, var, f_best, xi=xi)
+        print(f"  Using PI (xi={xi}) - EXPLOITATION")
+
     else:
-        xi = 0.001
-        acq = acquisition_ei(mean, var, f_best, xi=xi)
-        print(f"  Using EI (xi={xi}) - EXPLOITATION")
+        beta = 5.0
+        acq = acquisition_ucb(mean, var, beta=beta)
+        print(f"  Using UCB (beta={beta}) - EXPLORATION")
+
     return acq
+'''
+
 '''
 # Adaptive acquisition function strategy 2
 def get_acquisition(iteration, mean, var, f_best):
     """
     More aggressive exploration strategy
     """
-    if iteration < 3:
+
+    if iteration < 2:
+        # Standard PI
+        xi = 0.01
+        acq = acquisition_pi(mean, var, f_best, xi=xi)
+        print(f"  Using PI (xi={xi}) - ?BALANCED")
+
+    elif iteration < 7:
+        # STRONG EXPLORATION: Very high beta
+        beta = 5.0
+        acq = acquisition_ucb(mean, var, beta=beta)
+        print(f"  Using UCB (beta={beta}) - STRONG EXPLORATION")
+
+    else:
+        # Standard EI
+        xi = 0.01
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - Standard EXPLOITATION")
+
+    '''
+    
+'''
+    if iteration < 2:
         # STRONG EXPLORATION: Very high beta
         beta = 5.0
         acq = acquisition_ucb(mean, var, beta=beta)
@@ -371,19 +438,32 @@ def get_acquisition(iteration, mean, var, f_best):
       #  acq = acquisition_ucb(mean, var, beta=beta)
        # print(f"  Using UCB (beta={beta}) - MODERATE EXPLORATION")
         
-    elif iteration < 7:
+    elif iteration < 5:
         # BALANCED: Standard EI
         xi = 0.01
         acq = acquisition_ei(mean, var, f_best, xi=xi)
         print(f"  Using EI (xi={xi}) - BALANCED")
         
+    elif iteration < 8:
+        # STRONG EXPLORATION: Very high beta
+        beta = 5.0
+        acq = acquisition_ucb(mean, var, beta=beta)
+        print(f"  Using UCB (beta={beta}) - STRONG EXPLORATION")
+
+    elif iteration < 2:
+        # Standard PI
+        xi = 0.01
+        acq = acquisition_pi(mean, var, f_best, xi=xi)
+        print(f"  Using PI (xi={xi}) - ?BALANCED")
+
     else:
         # EXPLOITATION: Greedy EI
         xi = 0.0001
         acq = acquisition_ei(mean, var, f_best, xi=xi)
         print(f"  Using EI (xi={xi}) - GREEDY EXPLOITATION")
+    '''
     
-    return acq
+    #return acq
 
 class BO:
     def __init__(self, X_initial, X_searchspace, iterations, objective_func, batch=5, multi_start=5, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
@@ -444,9 +524,9 @@ class BO:
             # --- Evaluate acquisition functions ---
             f_best = np.max(self.Y, axis=0)  # for EI/PI
             # Here potential for looping over the best acquisition function to use at each iteration (strategy chosen)
-            #acq = self.acquisition_ucb(mean, var)
-            #acq = self.acquisition_ei(mean, var, f_best)
-            #acq = self.acquisition_pi(mean, var, f_best)
+            #acq = acquisition_ucb(mean, var)
+            #acq = acquisition_ei(mean, var, f_best)
+            #acq = acquisition_pi(mean, var, f_best)
             acq = get_acquisition(iteration, mean, var, f_best)
 
             # --- select batch ---
