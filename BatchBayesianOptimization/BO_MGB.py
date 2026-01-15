@@ -314,6 +314,77 @@ class RandomSelection:
         random_searchspace = [self.X_searchspace[random.randrange(len(self.X_searchspace))] for c in range(batch)]
         self.random_Y = objective_func(random_searchspace)
 
+
+def acquisition_ucb(mean, var, beta=2.0):
+    """Upper Confidence Bound acquisition function"""
+    return mean + beta * np.sqrt(var)
+
+def acquisition_ei(mean, var, f_best, xi=0.01):
+    """Expected Improvement acquisition function"""
+    std = np.sqrt(var)
+    z = (mean - f_best - xi) / (std + 1e-9)  # Add small epsilon to avoid division by zero
+    return (mean - f_best - xi) * scipy.stats.norm.cdf(z) + std * scipy.stats.norm.pdf(z)
+
+def acquisition_pi(mean, var, f_best, xi=0.01):
+    """Probability of Improvement acquisition function"""
+    std = np.sqrt(var)
+    z = (mean - f_best - xi) / (std + 1e-9)
+    return scipy.stats.norm.cdf(z)
+
+'''
+# Adaptive acquisition function strategy 1
+def get_acquisition(iteration, mean, var, f_best):
+    """
+    Adaptive acquisition function strategy:
+    - Iterations 0-4: UCB (exploration)
+    - Iterations 5-9: EI (balanced)
+    - Iterations 10-14: EI (exploitation)
+    """
+    if iteration < 5:
+        beta = 3.0
+        acq = acquisition_ucb(mean, var, beta=beta)
+        print(f"  Using UCB (beta={beta}) - EXPLORATION")
+    elif iteration < 10:
+        xi = 0.01
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - BALANCED")
+    else:
+        xi = 0.001
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - EXPLOITATION")
+    return acq
+'''
+# Adaptive acquisition function strategy 2
+def get_acquisition(iteration, mean, var, f_best):
+    """
+    More aggressive exploration strategy
+    """
+    if iteration < 3:
+        # STRONG EXPLORATION: Very high beta
+        beta = 5.0
+        acq = acquisition_ucb(mean, var, beta=beta)
+        print(f"  Using UCB (beta={beta}) - STRONG EXPLORATION")
+        
+    #elif iteration < 7:
+        # MODERATE EXPLORATION: Medium beta
+     #   beta = 2.5
+      #  acq = acquisition_ucb(mean, var, beta=beta)
+       # print(f"  Using UCB (beta={beta}) - MODERATE EXPLORATION")
+        
+    elif iteration < 7:
+        # BALANCED: Standard EI
+        xi = 0.01
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - BALANCED")
+        
+    else:
+        # EXPLOITATION: Greedy EI
+        xi = 0.0001
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - GREEDY EXPLOITATION")
+    
+    return acq
+
 class BO:
     def __init__(self, X_initial, X_searchspace, iterations, objective_func, batch=5, multi_start=5, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
         start_time = datetime.timestamp(datetime.now()) #local time, not self
@@ -374,8 +445,9 @@ class BO:
             f_best = np.max(self.Y, axis=0)  # for EI/PI
             # Here potential for looping over the best acquisition function to use at each iteration (strategy chosen)
             #acq = self.acquisition_ucb(mean, var)
-            acq = self.acquisition_ei(mean, var, f_best)
+            #acq = self.acquisition_ei(mean, var, f_best)
             #acq = self.acquisition_pi(mean, var, f_best)
+            acq = get_acquisition(iteration, mean, var, f_best)
 
             # --- select batch ---
             batch_idx_rel = np.argsort(acq)[-self.batch:]
@@ -412,7 +484,7 @@ class BO:
         #print("Final time for iteration (s):", datetime.timestamp(datetime.now()) - start_time)
         print("Final time for iteration (s):", datetime.timestamp(datetime.now()) - total_start)
 
-    
+    '''
     def acquisition_ucb(self, mean, var, beta=2.0):
         return mean + beta * np.sqrt(var)
 
@@ -425,7 +497,8 @@ class BO:
         std = np.sqrt(var)
         z = (mean - f_best - xi)/std
         return scipy.stats.norm.cdf(z)
-    
+    '''
+        
     '''
     def optimize(self, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
         self.celltypes = celltypes
