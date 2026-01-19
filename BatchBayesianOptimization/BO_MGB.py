@@ -565,32 +565,23 @@ class BO:
             #X_batch = Xcand[batch_idx_rel]
 
             ### Select Batch Using Strategy Instead! ###
-
-            # Local Penalisation Batch Selection
-            print("  Selecting batch using LOCAL PENALISATION")
-            # Batch Policy
-            USE_LP = iteration <6  # Use Local Penalisation for first N iterations
-            DIVERSIFY_K = 2  # only diversify first K points in batch
-            batch_eff = self.batch if iteration < 6 else 3
-
+            # --- THOMPSON SAMPLING BATCH SELECTION ---
             batch_idx_rel = []
-            acq_working = acq.copy()
+            Xcand_working = Xcand.copy()
 
             for b in range(self.batch):
-                idx = np.argmax(acq_working)
-                batch_idx_rel.append(idx)
-                # Penalise region around selected point for diversity in early batch points
-                if USE_LP and b < DIVERSIFY_K:
-                    acq_working = local_penalisation(
-                            acq_working,
-                            Xcand,
-                            idx,
-                            iteration,
-                            self.iterations
-                            )
-                else:
-                    acq_working[idx] = -np.inf  # Just exclude selected point
+                 # TS: sample from GP posterior for each candidate point
+                f_sample = np.array([gp.GP_inference_np(x)[0] + np.random.normal(0, 1e-6) for x in Xcand_working])
+    
 
+                # Select the best sample
+                idx = np.argmax(f_sample)
+                batch_idx_rel.append(idx)
+
+                # Remove selected point to avoid duplicates in batch
+                Xcand_working = np.delete(Xcand_working, idx, axis=0)
+
+           
             batch_idx_rel = np.array(batch_idx_rel)
             X_batch = Xcand[batch_idx_rel]
 
