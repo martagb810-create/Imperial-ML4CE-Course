@@ -6,12 +6,10 @@ import matplotlib.pyplot as plt
 import time
 import sobol_seq
 import scipy
-#from scipy.optimize import minimize
-#from scipy.spatial.distance import cdist
 
 # Group Submission
 group_names = ["Marta Garcia Belza", "Eric Lun"]
-cid_numbers = ["02048342", ""]
+cid_numbers = ["02048342", "02211284"]
 oral_assignement = [1,0] # 1 for yes to assessment in oral presentation
 
 #Goal of code
@@ -133,6 +131,22 @@ def sobol_searchspace(
 #Objective function
 def objective_func(X: list): 
     return(np.array(virtual_lab.conduct_experiment(X)))
+
+def local_penalisation(acq, Xcand, selected_idx, lengthscale=1.0):
+    """
+    Penalise acquisition values near already-selected points
+    """
+    x_sel = Xcand[selected_idx]
+
+    # Euclidean distance
+    dist = np.linalg.norm(Xcand - x_sel, axis=1)
+
+    # Penalisation kernel (Gaussian)
+    penalty = np.exp(-0.5 * (dist / lengthscale)**2)
+
+    # Reduce acquisition near selected point
+    return acq * (1 - penalty)
+
 
 #TODO: Implement search space and Xtraining
 #TODO: Make sure that GP inference can be queried with multiple points at once for batch BO
@@ -332,6 +346,7 @@ def acquisition_pi(mean, var, f_best, xi=0.01):
     return scipy.stats.norm.cdf(z)
 
 
+### THOMPSON SAMPLING STRATEGY HERE ###
 
 def get_acquisition(iteration, mean, var, f_best):
     """
@@ -346,13 +361,13 @@ def get_acquisition(iteration, mean, var, f_best):
         acq = samples  # Use samples directly as acquisition values
         print(f"  Using THOMPSON SAMPLING - STOCHASTIC EXPLORATION")
         
-    #elif iteration < 7:
+    #elif iteration < 8:
         # ITERATIONS 3-6: UCB (systematic exploration)
      #   beta = 5
       #  acq = acquisition_ucb(mean, var, beta=beta)
        # print(f"  Using UCB (beta={beta}) - SYSTEMATIC EXPLORATION")
         
-    elif iteration < 8:
+    elif iteration < 6:
         # ITERATIONS 7-10: EI (exploitation focus)
         xi = 0.01
         acq = acquisition_pi(mean, var, f_best, xi=xi)
@@ -371,6 +386,8 @@ def get_acquisition(iteration, mean, var, f_best):
         print(f"  Using EI (xi={xi}) - PURE GREEDY")
     
     return acq
+
+
 '''
 
 # Adaptive acquisition function strategy 1
@@ -529,9 +546,31 @@ class BO:
             #acq = acquisition_pi(mean, var, f_best)
             acq = get_acquisition(iteration, mean, var, f_best)
 
+
             # --- select batch ---
-            batch_idx_rel = np.argsort(acq)[-self.batch:]
+            #batch_idx_rel = np.argsort(acq)[-self.batch:]
+            #X_batch = Xcand[batch_idx_rel]
+
+            ### Select Batch Using Strategy Instead! ###
+            batch_idx_rel = []
+            acq_working = acq.copy()
+
+            for b in range(self.batch):
+                idx = np.argmax(acq_working)
+                batch_idx_rel.append(idx)
+
+                # Penalise region around selected point
+                acq_working = local_penalisation(
+                    acq_working,
+                    Xcand,
+                    idx,
+                    lengthscale=1.0
+                )
+
+            batch_idx_rel = np.array(batch_idx_rel)
             X_batch = Xcand[batch_idx_rel]
+
+
              # Convert NumPy array to list of lists
             X_batch_list = X_batch.tolist()
             # Transform the 6th column to categorical labels
