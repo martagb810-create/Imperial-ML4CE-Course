@@ -132,14 +132,27 @@ def sobol_searchspace(
 def objective_func(X: list): 
     return(np.array(virtual_lab.conduct_experiment(X)))
 
-def local_penalisation(acq, Xcand, selected_idx, lengthscale=1.0):
+def local_penalisation(acq, Xcand, selected_idx, iteration, max_iter):
     """
     Penalise acquisition values near already-selected points
     """
-    x_sel = Xcand[selected_idx]
+    ''''
+    # Lengthscale decreases over iterations to allow closer points later
+    initial_lengthscale = 1.0  # Initial lengthscale
+    final_lengthscale = 0.2    # Final lengthscale
+    lengthscale = initial_lengthscale - (initial_lengthscale - final_lengthscale) * (iteration / max_iter)
+    '''
+
+    lengthscale = 0.5 + 3.0 * (iteration / max_iter)
 
     # Euclidean distance
-    dist = np.linalg.norm(Xcand - x_sel, axis=1)
+    #x_sel = Xcand[selected_idx]
+    #dist = np.linalg.norm(Xcand - x_sel, axis=1)
+
+    dist = np.linalg.norm(
+    Xcand[:, :5] - Xcand[selected_idx, :5],
+    axis=1)
+
 
     # Penalisation kernel (Gaussian)
     penalty = np.exp(-0.5 * (dist / lengthscale)**2)
@@ -552,20 +565,31 @@ class BO:
             #X_batch = Xcand[batch_idx_rel]
 
             ### Select Batch Using Strategy Instead! ###
+
+            # Local Penalisation Batch Selection
+            print("  Selecting batch using LOCAL PENALISATION")
+            # Batch Policy
+            USE_LP = iteration <6  # Use Local Penalisation for first N iterations
+            DIVERSIFY_K = 2  # only diversify first K points in batch
+            batch_eff = self.batch if iteration < 6 else 3
+
             batch_idx_rel = []
             acq_working = acq.copy()
 
             for b in range(self.batch):
                 idx = np.argmax(acq_working)
                 batch_idx_rel.append(idx)
-
-                # Penalise region around selected point
-                acq_working = local_penalisation(
-                    acq_working,
-                    Xcand,
-                    idx,
-                    lengthscale=1.0
-                )
+                # Penalise region around selected point for diversity in early batch points
+                if USE_LP and b < DIVERSIFY_K:
+                    acq_working = local_penalisation(
+                            acq_working,
+                            Xcand,
+                            idx,
+                            iteration,
+                            self.iterations
+                            )
+                else:
+                    acq_working[idx] = -np.inf  # Just exclude selected point
 
             batch_idx_rel = np.array(batch_idx_rel)
             X_batch = Xcand[batch_idx_rel]
