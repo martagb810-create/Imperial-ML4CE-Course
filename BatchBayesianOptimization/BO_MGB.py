@@ -6,13 +6,13 @@ import matplotlib.pyplot as plt
 import time
 import sobol_seq
 import scipy
-from scipy.optimize import minimize
-from scipy.spatial.distance import cdist
+#from scipy.optimize import minimize
+#from scipy.spatial.distance import cdist
 
 # Group Submission
 group_names = ["Marta Garcia Belza", "Eric Lun"]
-cid_numbers = ["", ""]
-oral_assignement = [1] # 1 for yes to assessment in oral presentation
+cid_numbers = ["02048342", ""]
+oral_assignement = [1,0] # 1 for yes to assessment in oral presentation
 
 #Goal of code
 '''
@@ -168,7 +168,7 @@ class GP_model:
         --- decription ---
         '''
     
-        dist       = cdist(X_norm, X_norm, 'seuclidean', V=W)**2 
+        dist       = scipy.spatial.distance.cdist(X_norm, X_norm, 'seuclidean', V=W)**2 
         cov_matrix = sf2*np.exp(-0.5*dist)
 
         return cov_matrix
@@ -186,7 +186,7 @@ class GP_model:
         # internal parameters
         nx_dim = self.nx_dim
 
-        dist = cdist(Xnorm, xnorm.reshape(1,nx_dim), 'seuclidean', V=ell)**2
+        dist = scipy.spatial.distance.cdist(Xnorm, xnorm.reshape(1,nx_dim), 'seuclidean', V=ell)**2
         cov_matrix = sf2 * np.exp(-.5*dist)
 
         return cov_matrix                
@@ -252,7 +252,7 @@ class GP_model:
             print('multi_start hyper parameter optimization iteration = ',j)
             hyp_init    = lb + (ub-lb)*multi_startvec[j,:]
             # --- hyper-parameter optimization --- #
-            res = minimize(self.negative_loglikelihood,hyp_init,args=(X_norm,Y_norm)\
+            res = scipy.optimize.minimize(self.negative_loglikelihood,hyp_init,args=(X_norm,Y_norm)\
                                ,method='SLSQP',options=options,bounds=bounds,tol=1e-12)
             localsol[j] = res.x
             localval[j] = res.fun
@@ -658,12 +658,21 @@ X_initial = ([[33, 6.25, 10, 20, 20, 'celltype_1'],
 #X_searchspace     = [[a,b,c,d,e,f] for a in temp for b in pH for c in f1 for d in f2 for e in f3 for f in celltype]
 '''
 #TODO: Select 6 initial points
-X_initial = np.array([[33, 6.25, 10, 20, 20, 0],
+'''
+#X_initial = np.array([[33, 6.25, 10, 20, 20, 0],
               [38, 8, 20, 10, 20, 2],
               [37, 6.8, 0, 50, 0, 0],
               [36, 6.0, 20, 20, 10, 2],
               [36, 6.1, 20, 20, 10, 1],
               [38, 6.0, 30, 50, 10, 0]])
+'''
+X_initial = np.array([[34, 6.15, 36, 39, 40, 2],
+              [32, 6.16, 29, 20, 35.5, 2],
+              [31, 6.5, 49.2, 40, 1.5, 2],
+              [35, 6.6, 35, 36.2, 44, 2],
+              [36, 6.1, 45.4, 36, 48.5, 2],
+              [32, 6.3, 26.6, 42.2, 42.2, 1]])
+
 X_searchspace = sobol_searchspace() #Numpy array
 BO_m = BO(X_initial, X_searchspace, 15, objective_func, 5, multi_start=5)
 

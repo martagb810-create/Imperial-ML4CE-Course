@@ -86,7 +86,7 @@ n = obj.size
 print("Time after evaluating objective function (s):", datetime.timestamp(datetime.now()) - start_time)
 # ---- Top 3 (largest) ----
 order_desc = np.argsort(obj)[::-1]   # indices sorted by descending objective
-top3_idx = order_desc[:min(3, n)]
+top3_idx = order_desc[:min(8, n)]
 
 print("Best objective:", obj[top3_idx[0]])
 print("At point:", X_searchspace[int(top3_idx[0])])
@@ -96,6 +96,21 @@ if top3_idx.size >= 2:
 if top3_idx.size >= 3:
     print("Third best objective:", obj[top3_idx[2]])
     print("At point:", X_searchspace[int(top3_idx[2])])
+if top3_idx.size >= 4:
+    print("Fourth best objective:", obj[top3_idx[3]])
+    print("At point:", X_searchspace[int(top3_idx[3])])
+if top3_idx.size >= 5:
+    print("Fifth best objective:", obj[top3_idx[4]])
+    print("At point:", X_searchspace[int(top3_idx[4])])
+if top3_idx.size >= 6:
+    print("Sixth best objective:", obj[top3_idx[5]])
+    print("At point:", X_searchspace[int(top3_idx[5])])
+if top3_idx.size >= 7:
+    print("Seventh best objective:", obj[top3_idx[6]])
+    print("At point:", X_searchspace[int(top3_idx[6])])
+if top3_idx.size >= 8:
+    print("Eighth best objective:", obj[top3_idx[7]])
+    print("At point:", X_searchspace[int(top3_idx[7])])
 
 # ---- Two mid points (around median ranks in ascending order) ----
 order_asc = order_desc[::-1]               # reuse: ascending order
