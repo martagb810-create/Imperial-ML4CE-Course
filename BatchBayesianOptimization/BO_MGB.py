@@ -136,13 +136,6 @@ def local_penalisation(acq, Xcand, selected_idx, iteration, max_iter):
     """
     Penalise acquisition values near already-selected points
     """
-    ''''
-    # Lengthscale decreases over iterations to allow closer points later
-    initial_lengthscale = 1.0  # Initial lengthscale
-    final_lengthscale = 0.2    # Final lengthscale
-    lengthscale = initial_lengthscale - (initial_lengthscale - final_lengthscale) * (iteration / max_iter)
-    '''
-
     lengthscale = 0.5 + 3.0 * (iteration / max_iter)
 
     # Euclidean distance
@@ -152,7 +145,6 @@ def local_penalisation(acq, Xcand, selected_idx, iteration, max_iter):
     dist = np.linalg.norm(
     Xcand[:, :5] - Xcand[selected_idx, :5],
     axis=1)
-
 
     # Penalisation kernel (Gaussian)
     penalty = np.exp(-0.5 * (dist / lengthscale)**2)
@@ -565,23 +557,48 @@ class BO:
             #X_batch = Xcand[batch_idx_rel]
 
             ### Select Batch Using Strategy Instead! ###
-            # --- THOMPSON SAMPLING BATCH SELECTION ---
+            # --- KRIGING BELIEVER BATCH SELECTION ---
             batch_idx_rel = []
             Xcand_working = Xcand.copy()
+            acq_working = acq.copy()
+
+            # Temporary copies of GP data
+            X_temp = self.X.copy()
+            Y_temp = np.array(self.Y).copy()
 
             for b in range(self.batch):
-                 # TS: sample from GP posterior for each candidate point
-                f_sample = np.array([gp.GP_inference_np(x)[0] + np.random.normal(0, 1e-6) for x in Xcand_working])
-    
-
-                # Select the best sample
-                idx = np.argmax(f_sample)
+                # 1️pick best acquisition point
+                idx = np.argmax(acq_working)
                 batch_idx_rel.append(idx)
+                x_next = Xcand_working[idx]
 
-                # Remove selected point to avoid duplicates in batch
+                # 2️ “believe” the GP prediction is true
+                # Get GP predicted mean (without variance)
+                y_fake, _ = gp.GP_inference_np(x_next)
+
+                # 3️ update temporary GP dataset
+                X_temp = np.vstack((X_temp, x_next.reshape(1, -1)))
+                Y_temp = np.append(Y_temp, y_fake)
+
+                # 4️ Remove selected candidate
                 Xcand_working = np.delete(Xcand_working, idx, axis=0)
+                acq_working = np.delete(acq_working, idx, axis=0)
 
-           
+                # 5️ Recompute acquisition values for remaining candidates
+                # Create a temporary GP with updated data
+                gp_temp = GP_model(X_temp, Y_temp, self.multi_start)
+                
+                mean_list = []
+                var_list = []
+                for x in Xcand_working:
+                    m, v = gp_temp.GP_inference_np(x)
+                    mean_list.append(m)
+                    var_list.append(v)
+                mean_temp = np.array(mean_list)
+                var_temp = np.array(var_list)
+
+                acq_working = get_acquisition(iteration, mean_temp, var_temp, np.max(Y_temp))
+
             batch_idx_rel = np.array(batch_idx_rel)
             X_batch = Xcand[batch_idx_rel]
 
