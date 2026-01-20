@@ -1,30 +1,3 @@
-import MLCE_CWBO2025.virtual_lab as virtual_lab
-import numpy as np
-from datetime import datetime
-import random
-import matplotlib.pyplot as plt
-import time
-import sobol_seq
-import scipy
-
-# Group Submission
-group_names = ["Marta Garcia Belza", "Eric Lun"]
-cid_numbers = ["02048342", "02211284"]
-oral_assignement = [1,0] # 1 for yes to assessment in oral presentation
-
-#Goal of code
-'''
-Implement a Batch Bayesian Optimization algorithm to 
-optimize a virtual laboratory experiment by 
-selecting batches of experimental conditions to evaluate,
-using Gaussian Processes as surrogate models and acquisition functions
- to guide the selection process.
-
- develop class BO, obtain set of inputs which maximizes the titre (obj. fn)
- 2 attributes: self.Y and self.time - record results and runtime
- Must be of the same size, where len(self.Y) = len(self.time) = 81
-
-'''
 # Structure of code
 '''
 def Objective
@@ -74,6 +47,33 @@ class BO to call GP for the optimisation:
 # Repeat for 15 batches
 
 
+import MLCE_CWBO2025.virtual_lab as virtual_lab
+import numpy as np
+from datetime import datetime
+import random
+import matplotlib.pyplot as plt
+import time
+import sobol_seq
+import scipy
+
+# Group Submission
+group_names = ["Marta Garcia Belza", "Eric Lun"]
+cid_numbers = ["02048342", "02211284"]
+oral_assignement = [1,0] # 1 for yes to assessment in oral presentation
+
+#Goal of code
+'''
+Implement a Batch Bayesian Optimization algorithm to 
+optimize a virtual laboratory experiment by 
+selecting batches of experimental conditions to evaluate,
+using Gaussian Processes as surrogate models and acquisition functions
+ to guide the selection process.
+
+ develop class BO, obtain set of inputs which maximizes the titre (obj. fn)
+ 2 attributes: self.Y and self.time - record results and runtime
+ Must be of the same size, where len(self.Y) = len(self.time) = 81
+
+'''
 
 #Sobol searchspace generation
 def sobol_searchspace(
@@ -132,26 +132,63 @@ def sobol_searchspace(
 def objective_func(X: list): 
     return(np.array(virtual_lab.conduct_experiment(X)))
 
-def local_penalisation(acq, Xcand, selected_idx, iteration, max_iter):
-    """
-    Penalise acquisition values near already-selected points
-    """
-    lengthscale = 0.5 + 3.0 * (iteration / max_iter)
 
-    # Euclidean distance
-    #x_sel = Xcand[selected_idx]
-    #dist = np.linalg.norm(Xcand - x_sel, axis=1)
+### --- ACQUISITION FUNCTIONS --- ###
+#UCB: Upper Confidence Bound
+def acquisition_ucb(mean, var, beta=5.0):
+    """Upper Confidence Bound acquisition function"""
+    return mean + beta * np.sqrt(var)
 
-    dist = np.linalg.norm(
-    Xcand[:, :5] - Xcand[selected_idx, :5],
-    axis=1)
+#EI: Expected Improvement
+def acquisition_ei(mean, var, f_best, xi=0.01):
+    """Expected Improvement acquisition function"""
+    std = np.sqrt(var)
+    z = (mean - f_best - xi) / (std + 1e-9)  # Add small epsilon to avoid division by zero
+    return (mean - f_best - xi) * scipy.stats.norm.cdf(z) + std * scipy.stats.norm.pdf(z)
 
-    # Penalisation kernel (Gaussian)
-    penalty = np.exp(-0.5 * (dist / lengthscale)**2)
+#PI: Probability of Improvement
+def acquisition_pi(mean, var, f_best, xi=0.01):
+    """Probability of Improvement acquisition function"""
+    std = np.sqrt(var)
+    z = (mean - f_best - xi) / (std + 1e-9)
+    return scipy.stats.norm.cdf(z)
 
-    # Reduce acquisition near selected point
-    return acq * (1 - penalty)
+### THOMPSON SAMPLING STRATEGY ###
+def get_acquisition(iteration, mean, var, f_best):
+    if iteration < 3:
+        # ITERATIONS 0-2: THOMPSON SAMPLING (randomized exploration)
+        # Sample from GP posterior to get diverse points
+        # This is implicit Thompson Sampling via random draws
+        np.random.seed(iteration)  # Different seed per iteration
+        samples = np.random.normal(mean, np.sqrt(var))
+        acq = samples  # Use samples directly as acquisition values
+        print(f"  Using THOMPSON SAMPLING - STOCHASTIC EXPLORATION")
+    '''
+    if iteration < 3:
+        # ITERATIONS 3-6: UCB (systematic exploration)
+        beta = 5
+        acq = acquisition_ucb(mean, var, beta=beta)
+        print(f"  Using UCB (beta={beta}) - SYSTEMATIC EXPLORATION")
+    '''
+    elif iteration < 6:
+        # ITERATIONS 3-5: EI (exploitation focus)
+        xi = 0.01
+        acq = acquisition_pi(mean, var, f_best, xi=xi)
+        print(f"  Using PI (xi={xi}) - EXPLOITATION")
 
+    elif iteration < 15:
+        # ITERATIONS 6-14: Greedy EI
+        xi = 0.001
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - GREEDY EXPLOITATION")
+        
+    else:
+        # ITERATIONS 11-14: Greedy EI
+        xi = 0.0
+        acq = acquisition_ei(mean, var, f_best, xi=xi)
+        print(f"  Using EI (xi={xi}) - PURE GREEDY")
+    
+    return acq
 
 #TODO: Implement search space and Xtraining
 #TODO: Make sure that GP inference can be queried with multiple points at once for batch BO
@@ -241,10 +278,7 @@ class GP_model:
     ############################################################   
     
     def determine_hyperparameters(self):
-        '''
-        --- decription ---
-        Notice we construct one GP for each output
-        '''   
+
         # internal parameters
         X_norm, Y_norm  = self.X_norm, self.Y_norm
         nx_dim, n_point = self.nx_dim, self.n_point
@@ -295,9 +329,7 @@ class GP_model:
     ########################     
     
     def GP_inference_np(self, x): # may need add y for the batch selection strategy
-        '''
-        --- decription ---
-        '''
+
         nx_dim                   = self.nx_dim
         hypopt                   = self.hypopt
         stdX, stdY, meanX, meanY = self.X_std, self.Y_std, self.X_mean, self.Y_mean
@@ -334,163 +366,9 @@ class RandomSelection:
         self.random_Y = objective_func(random_searchspace)
 
 
-def acquisition_ucb(mean, var, beta=5.0):
-    """Upper Confidence Bound acquisition function"""
-    return mean + beta * np.sqrt(var)
-
-def acquisition_ei(mean, var, f_best, xi=0.01):
-    """Expected Improvement acquisition function"""
-    std = np.sqrt(var)
-    z = (mean - f_best - xi) / (std + 1e-9)  # Add small epsilon to avoid division by zero
-    return (mean - f_best - xi) * scipy.stats.norm.cdf(z) + std * scipy.stats.norm.pdf(z)
-
-def acquisition_pi(mean, var, f_best, xi=0.01):
-    """Probability of Improvement acquisition function"""
-    std = np.sqrt(var)
-    z = (mean - f_best - xi) / (std + 1e-9)
-    return scipy.stats.norm.cdf(z)
-
-
-### THOMPSON SAMPLING STRATEGY HERE ###
-
-def get_acquisition(iteration, mean, var, f_best):
-    """
-    Hybrid strategy with Thompson Sampling for early diversity
-    """
-    if iteration < 3:
-        # ITERATIONS 0-2: THOMPSON SAMPLING (randomized exploration)
-        # Sample from GP posterior to get diverse points
-        # This is implicit Thompson Sampling via random draws
-        np.random.seed(iteration)  # Different seed per iteration
-        samples = np.random.normal(mean, np.sqrt(var))
-        acq = samples  # Use samples directly as acquisition values
-        print(f"  Using THOMPSON SAMPLING - STOCHASTIC EXPLORATION")
-        
-    #elif iteration < 8:
-        # ITERATIONS 3-6: UCB (systematic exploration)
-     #   beta = 5
-      #  acq = acquisition_ucb(mean, var, beta=beta)
-       # print(f"  Using UCB (beta={beta}) - SYSTEMATIC EXPLORATION")
-        
-    elif iteration < 6:
-        # ITERATIONS 7-10: EI (exploitation focus)
-        xi = 0.01
-        acq = acquisition_pi(mean, var, f_best, xi=xi)
-        print(f"  Using PI (xi={xi}) - EXPLOITATION")
-
-    elif iteration < 15:
-        # ITERATIONS 11-14: Greedy EI
-        xi = 0.001
-        acq = acquisition_ei(mean, var, f_best, xi=xi)
-        print(f"  Using EI (xi={xi}) - GREEDY EXPLOITATION")
-        
-    else:
-        # ITERATIONS 11-14: Greedy EI
-        xi = 0.0
-        acq = acquisition_ei(mean, var, f_best, xi=xi)
-        print(f"  Using EI (xi={xi}) - PURE GREEDY")
-    
-    return acq
-
-
-'''
-
-# Adaptive acquisition function strategy 1
-def get_acquisition(iteration, mean, var, f_best):
-    """
-    Adaptive acquisition function strategy:
-    - Iterations 0-4: UCB (exploration)
-    - Iterations 5-9: EI (balanced)
-    - Iterations 10-14: EI (exploitation)
-    """
-    if iteration < 4:
-        acq = acquisition_ei(mean, var, f_best, xi=0.01)
-        print(f"  Using EI (xi={0.01}) - BALANCED")
-
-    elif iteration < 10:
-        xi = 0.01
-        acq = acquisition_pi(mean, var, f_best, xi=xi)
-        print(f"  Using PI (xi={xi}) - EXPLOITATION")
-
-    else:
-        beta = 5.0
-        acq = acquisition_ucb(mean, var, beta=beta)
-        print(f"  Using UCB (beta={beta}) - EXPLORATION")
-
-    return acq
-'''
-
-'''
-# Adaptive acquisition function strategy 2
-def get_acquisition(iteration, mean, var, f_best):
-    """
-    More aggressive exploration strategy
-    """
-
-    if iteration < 2:
-        # Standard PI
-        xi = 0.01
-        acq = acquisition_pi(mean, var, f_best, xi=xi)
-        print(f"  Using PI (xi={xi}) - ?BALANCED")
-
-    elif iteration < 7:
-        # STRONG EXPLORATION: Very high beta
-        beta = 5.0
-        acq = acquisition_ucb(mean, var, beta=beta)
-        print(f"  Using UCB (beta={beta}) - STRONG EXPLORATION")
-
-    else:
-        # Standard EI
-        xi = 0.01
-        acq = acquisition_ei(mean, var, f_best, xi=xi)
-        print(f"  Using EI (xi={xi}) - Standard EXPLOITATION")
-
-    '''
-    
-'''
-    if iteration < 2:
-        # STRONG EXPLORATION: Very high beta
-        beta = 5.0
-        acq = acquisition_ucb(mean, var, beta=beta)
-        print(f"  Using UCB (beta={beta}) - STRONG EXPLORATION")
-        
-    #elif iteration < 7:
-        # MODERATE EXPLORATION: Medium beta
-     #   beta = 2.5
-      #  acq = acquisition_ucb(mean, var, beta=beta)
-       # print(f"  Using UCB (beta={beta}) - MODERATE EXPLORATION")
-        
-    elif iteration < 5:
-        # BALANCED: Standard EI
-        xi = 0.01
-        acq = acquisition_ei(mean, var, f_best, xi=xi)
-        print(f"  Using EI (xi={xi}) - BALANCED")
-        
-    elif iteration < 8:
-        # STRONG EXPLORATION: Very high beta
-        beta = 5.0
-        acq = acquisition_ucb(mean, var, beta=beta)
-        print(f"  Using UCB (beta={beta}) - STRONG EXPLORATION")
-
-    elif iteration < 2:
-        # Standard PI
-        xi = 0.01
-        acq = acquisition_pi(mean, var, f_best, xi=xi)
-        print(f"  Using PI (xi={xi}) - ?BALANCED")
-
-    else:
-        # EXPLOITATION: Greedy EI
-        xi = 0.0001
-        acq = acquisition_ei(mean, var, f_best, xi=xi)
-        print(f"  Using EI (xi={xi}) - GREEDY EXPLOITATION")
-    '''
-    
-    #return acq
-
 class BO:
     def __init__(self, X_initial, X_searchspace, iterations, objective_func, batch=5, multi_start=5, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
         start_time = datetime.timestamp(datetime.now()) #local time, not self
-        total_start = start_time
 
         self.X_initial = X_initial
         self.X_searchspace = X_searchspace
@@ -507,23 +385,25 @@ class BO:
             print(row[5])
             row[5] = celltypes[int(row[5])]  # convert 0,1,2 → 'celltype_1', etc.
             print(row[5])
-        #self.Y = objective_func(X_cat)
+
         Y_initial = objective_func(X_cat)
         self.Y = list(Y_initial)
-        print(type(self.Y))
-        #self.time = [datetime.timestamp(datetime.now())-self.start_time]*(len(self.Y))
-        self.time = [datetime.timestamp(datetime.now())-start_time]+ [0] * (len(Y_initial) - 1)
-        start_time = datetime.timestamp(datetime.now())
+    
+        self.time = [datetime.timestamp(datetime.now())-start_time] + [0]*(len(Y_initial)-1)
 
         self.X = X_initial.copy()
         # Select initial points from search space and mark them as used
         self.mask = np.ones(len(X_searchspace), dtype=bool)  # Mask to track available points, len returns first dimension (so rows)
-        # self.mask[idx_init] = False  # Mark initial points as used
-        # Call optimize method to perform BO
-        #self.X_final, self.Y_final = self.optimize()
-        #print("Final time (s):", datetime.timestamp(datetime.now()) - self.start_time)
-    
+
+        #######################################
+        # --- OPTIMISATION: BO iterations --- #
+        #######################################
+        # Loop over the number of iterations
+        # For each iteration, train GP, evaluate acquisition, select batch, evaluate objective, update data
+        # Record time taken for each iteration
+
         for iteration in range (self.iterations):
+            start_time = datetime.timestamp(datetime.now())
             print(f"\nBO iteration {iteration+1}/{self.iterations}")
 
             # Train GP model
@@ -553,55 +433,8 @@ class BO:
 
 
             # --- select batch ---
-            #batch_idx_rel = np.argsort(acq)[-self.batch:]
-            #X_batch = Xcand[batch_idx_rel]
-
-            ### Select Batch Using Strategy Instead! ###
-            # --- KRIGING BELIEVER BATCH SELECTION ---
-            batch_idx_rel = []
-            Xcand_working = Xcand.copy()
-            acq_working = acq.copy()
-
-            # Temporary copies of GP data
-            X_temp = self.X.copy()
-            Y_temp = np.array(self.Y).copy()
-
-            for b in range(self.batch):
-                # 1️pick best acquisition point
-                idx = np.argmax(acq_working)
-                batch_idx_rel.append(idx)
-                x_next = Xcand_working[idx]
-
-                # 2️ “believe” the GP prediction is true
-                # Get GP predicted mean (without variance)
-                y_fake, _ = gp.GP_inference_np(x_next)
-
-                # 3️ update temporary GP dataset
-                X_temp = np.vstack((X_temp, x_next.reshape(1, -1)))
-                Y_temp = np.append(Y_temp, y_fake)
-
-                # 4️ Remove selected candidate
-                Xcand_working = np.delete(Xcand_working, idx, axis=0)
-                acq_working = np.delete(acq_working, idx, axis=0)
-
-                # 5️ Recompute acquisition values for remaining candidates
-                # Create a temporary GP with updated data
-                gp_temp = GP_model(X_temp, Y_temp, self.multi_start)
-                
-                mean_list = []
-                var_list = []
-                for x in Xcand_working:
-                    m, v = gp_temp.GP_inference_np(x)
-                    mean_list.append(m)
-                    var_list.append(v)
-                mean_temp = np.array(mean_list)
-                var_temp = np.array(var_list)
-
-                acq_working = get_acquisition(iteration, mean_temp, var_temp, np.max(Y_temp))
-
-            batch_idx_rel = np.array(batch_idx_rel)
+            batch_idx_rel = np.argsort(acq)[-self.batch:]
             X_batch = Xcand[batch_idx_rel]
-
 
              # Convert NumPy array to list of lists
             X_batch_list = X_batch.tolist()
@@ -617,10 +450,8 @@ class BO:
             self.X = np.vstack((self.X, X_batch))
             self.Y += list(Y_batch)
 
-            self.time += [datetime.timestamp(datetime.now()) - start_time]
-            self.time += [0] * (len(Y_batch) - 1)
-
-            #start_time = datetime.timestamp(datetime.now())
+            self.time += [datetime.timestamp(datetime.now()) - start_time] + [0]*(len(Y_batch)-1)
+            
             # print best so far
             print(f"[Iter {iteration+1}/{self.iterations}] Best so far: {np.max(self.Y):.4f}")
 
@@ -628,106 +459,11 @@ class BO:
             mask_idx = np.where(self.mask)[0][batch_idx_rel]
             self.mask[mask_idx] = False
 
-            # ✓ RESET start_time for next iteration
-            start_time = datetime.timestamp(datetime.now())
+        # --- Record time at end of BO iterations ---
+        print("Total BO runtime (s):", sum(self.time))
+        print("Number of evaluations:", len(self.Y))
+        print("Number of time entries:", len(self.time))
 
-        # --- record time ---
-        #print("Final time for iteration (s):", datetime.timestamp(datetime.now()) - start_time)
-        print("Final time for iteration (s):", datetime.timestamp(datetime.now()) - total_start)
-
-    '''
-    def acquisition_ucb(self, mean, var, beta=2.0):
-        return mean + beta * np.sqrt(var)
-
-    def acquisition_ei(self, mean, var, f_best, xi=0.01):
-        std = np.sqrt(var)
-        z = (mean - f_best - xi)/std
-        return (mean - f_best - xi)*scipy.stats.norm.cdf(z) + std*scipy.stats.norm.pdf(z)
-
-    def acquisition_pi(self, mean, var, f_best, xi=0.01):
-        std = np.sqrt(var)
-        z = (mean - f_best - xi)/std
-        return scipy.stats.norm.cdf(z)
-    '''
-        
-    '''
-    def optimize(self, celltypes=('celltype_1', 'celltype_2', 'celltype_3')):
-        self.celltypes = celltypes
-
-        for iteration in range(self.iterations):
-            print(f"\nBO iteration {iteration+1}/{self.iterations}")
-
-            # Train GP model
-            gp = GP_model(self.X, self.Y, self.multi_start)
-
-            # --- evaluate all remaining candidates ---
-            Xcand = self.X_searchspace[self.mask]
-            mean_list = []
-            var_list = []
-
-            # Vectorized batch GP inference
-            for x in Xcand:
-                m, v = gp.GP_inference_np(x)
-                mean_list.append(m)
-                var_list.append(v)
-
-            mean = np.array(mean_list).squeeze()
-            var = np.array(var_list).squeeze()
-
-            # --- Evaluate acquisition functions ---
-            f_best = np.max(self.Y, axis=0)  # for EI/PI
-            # Here potential for looping over the best acquisition function to use at each iteration (strategy chosen)
-            #acq = self.acquisition_ucb(mean, var)
-            acq = self.acquisition_ei(mean, var, f_best)
-            #acq = self.acquisition_pi(mean, var, f_best)
-
-            # --- select batch ---
-            batch_idx_rel = np.argsort(acq)[-self.batch:]
-            X_batch = Xcand[batch_idx_rel]
-             # Convert NumPy array to list of lists
-            X_batch_list = X_batch.tolist()
-            # Transform the 6th column to categorical labels
-            for row in X_batch_list:
-                row[5] = self.celltypes[int(row[5])]  # convert 0,1,2 → 'celltype_1', etc.
-
-            # --- evaluate batch ---
-            Y_batch = objective_func(X_batch_list)
-
-            print("Y_batch values:", Y_batch)
-             # --- update data ---
-            self.X = np.vstack((self.X, X_batch))
-            self.Y = np.hstack((self.Y, Y_batch))
-
-            # print best so far
-            print(f"[Iter {iteration+1}/{self.iterations}] Best so far: {np.max(self.Y):.4f}")
-
-            # --- update mask ---
-            mask_idx = np.where(self.mask)[0][batch_idx_rel]
-            self.mask[mask_idx] = False
-
-            # --- record time ---
-            self.time += [datetime.timestamp(datetime.now())-self.start_time]*(len(Y_batch))
-
-        return self.X, self.Y
-    '''
-
-'''
-X_initial = ([[33, 6.25, 10, 20, 20, 'celltype_1'],
-              [38, 8, 20, 10, 20, 'celltype_3'],
-              [37, 6.8, 0, 50, 0, 'celltype_1'],
-              [36, 6.0, 20, 20, 10, 'celltype_3'],
-              [36, 6.1, 20, 20, 10, 'celltype_2'],
-              [38, 6.0, 30, 50, 10, 'celltype_1']])
-
-#temp = np.linspace(30, 40, 5)
-#pH = np.linspace(6, 8, 5)
-#f1 = np.linspace(0, 50, 5)
-#f2 = np.linspace(0, 50, 5)
-#f3 = np.linspace(0, 50, 5)
-#celltype = ['celltype_1','celltype_2','celltype_3']
-
-#X_searchspace     = [[a,b,c,d,e,f] for a in temp for b in pH for c in f1 for d in f2 for e in f3 for f in celltype]
-'''
 #TODO: Select 6 initial points
 '''
 #X_initial = np.array([[33, 6.25, 10, 20, 20, 0],
